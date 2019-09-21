@@ -21,6 +21,7 @@ Metadata:
       - pAmiId
       - pInstanceType
       - pKeyPair
+      - pDomainJoined
     - Label:
         default: Network
       Parameters:
@@ -30,7 +31,7 @@ Metadata:
       - pIngressCidr
       - pIngressPrefixListId
     - Label:
-        default: Active Directory
+        default: Active Directory Settings for Domain Joined Instances
       Parameters:
       - pActiveDirectoryId
       - pActiveDirectoryDomainName
@@ -52,6 +53,8 @@ Metadata:
         default: EC2 Instance Type
       pKeyPair:
         default: EC2 Key Pair
+      pDomainJoined:
+        default: Domain Joined (true | false)
       pVpcName:
         default: VPC Name
       pSubnetId:
@@ -95,6 +98,12 @@ Parameters:
   pKeyPair:
     Type: AWS::EC2::KeyPair::KeyName
     Description: EC2 Key Pair
+
+  pDomainJoined:
+    Description: Domain Joined (true | false)
+    Type: String
+    Default: false
+    AllowedValues: [true, false] 
 
   pVpcName:
     Description: Name of the existing VPC
@@ -150,6 +159,7 @@ Parameters:
     Description: Active Directory Domain Controller 2 IP Address
 
 Conditions:
+  cDomainJoined: !Equals [ !Ref 'pDomainJoined', true ]
   cIngressUseCidr: !Not [!Equals [ !Ref 'pIngressCidr', '' ] ]
   cIngressUsePrefixListId: !Not [!Equals [ !Ref 'pIngressPrefixListId', '' ] ]
 
@@ -169,8 +179,12 @@ Resources:
           SourcePrefixListId: !If [ cIngressUsePrefixListId, !Ref pIngressPrefixListId, !Ref 'AWS::NoValue' ]
 
   rSsmDocument:
-    Type: 'AWS::SSM::Document'
+    Type: AWS::SSM::Document
+    Condition: cDomainJoined
     Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${pSystem}-${pApp}-${pEnvPurpose}'
       Content:
         schemaVersion: '1.2'
         description: Join instances to an AWS Directory Service domain.
@@ -199,23 +213,29 @@ Resources:
               directoryName: '{{ directoryName }}'
               dnsIpAddresses: '{{ dnsIpAddresses }}'
 
+  rSsmAssociation:
+    Type: AWS::SSM::Association
+    Condition: cDomainJoined
+    Properties:
+      AssociationName: !Sub '${pSystem}-${pApp}-${pEnvPurpose}'
+      Name: !Ref rSsmDocument
+      Parameters:
+        - Key: directoryId
+          Value:
+            - !Ref pActiveDirectoryId
+        - Key: directoryName
+          Value:
+            - !Ref pActiveDirectoryDomainName
+        - Key: dnsIpAddresses
+          Value:
+            - !Ref pActiveDirectoryIpAddress1
+            - !Ref pActiveDirectoryIpAddress2
+
   rWindowsServer:
-    Type: 'AWS::EC2::Instance'
+    Type: AWS::EC2::Instance
     Properties:
       IamInstanceProfile: !Ref rInstanceProfile
-      SsmAssociations:
-        - DocumentName: !Ref rSsmDocument
-          AssociationParameters:
-            - Key: directoryId
-              Value:
-                - !Ref pActiveDirectoryId
-            - Key: directoryName
-              Value:
-                - !Ref pActiveDirectoryDomainName
-            - Key: dnsIpAddresses
-              Value:
-                - !Ref pActiveDirectoryIpAddress1
-                - !Ref pActiveDirectoryIpAddress2
+      SsmAssociations: !If [ cDomainJoined, !Ref rSsmAssociation, !Ref 'AWS::NoValue' ]
       KeyName: !Ref pKeyPair
       ImageId: !Ref pAmiId
       InstanceType: !Ref pInstanceType
