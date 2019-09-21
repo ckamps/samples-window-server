@@ -1,0 +1,338 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Windows Server Joined to Active Directory (AD) Domain
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Application Classification
+      Parameters:
+      - pOrg
+      - pSystem
+      - pApp
+    - Label:
+        default: Application Environment
+      Parameters:
+      - pEnvPurpose
+    - Label:
+        default: Windows Server Instance
+      Parameters:
+      - pAmiId
+      - pInstanceType
+      - pKeyPair
+    - Label:
+        default: Network
+      Parameters:
+      - pVpcName
+      - pSubnetId
+      - pPublicIpAddress
+      - pIngressCidr
+      - pIngressPrefixListId
+    - Label:
+        default: Active Directory
+      Parameters:
+      - pActiveDirectoryId
+      - pActiveDirectoryDomainName
+      - pActiveDirectoryIpAddress1
+      - pActiveDirectoryIpAddress2
+
+    ParameterLabels:
+      pEnvPurpose:
+        default: Environment Purpose
+      pOrg:
+        default: Organization Identifier
+      pSystem:
+        default: System Identifier
+      pApp:
+        default: Application Identifier
+      pAmiId:
+        default: EC2 AMI ID
+      pInstanceType:
+        default: EC2 Instance Type
+      pKeyPair:
+        default: EC2 Key Pair
+      pVpcName:
+        default: VPC Name
+      pSubnetId:
+        default: Subnet ID
+      pPublicIpAddress:
+        default: Public IP Address (true | false)
+      pIngressCidr:
+        default: Allowed Ingress CIDR IP Range (optional)
+      pIngressPrefixListId:
+        default: Allowed Prefix List ID (optional)
+      pActiveDirectoryId:
+        default: AWS Managed Active Directory Identifier
+      pActiveDirectoryDomainName:
+        default: Active Directory Domain Name
+      pActiveDirectoryIpAddress1:
+        default: Active Directory Domain Controller 1 IP Address
+      pActiveDirectoryIpAddress2:
+        default: Active Directory Domain Controller 2 IP Address
+
+Parameters:
+  pOrg:
+    Type: String
+    Description: Used to qualify resource names
+    Default: acme
+
+  pSystem:
+    Type: String
+    Description: Used to qualify resource names
+    Default: samples
+
+  pApp:
+    Type: String
+    Description: Used to qualify resource names
+    Default: windows-server
+
+  pEnvPurpose:
+    Type: String
+    Description: Used to qualify resource names. 10 characters max.
+    AllowedPattern: '^[a-zA-Z0-9-_]{1,10}$'
+
+  pKeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair
+
+  pVpcName:
+    Description: Name of the existing VPC
+    Type: String
+
+  pSubnetId:
+    Description: ID for subnet in which server is to be deployed
+    Type: AWS::EC2::Subnet::Id
+
+  pPublicIpAddress:
+    Description: Enable public IP address (true | false)
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+ 
+  pIngressCidr:
+    Description: IP address range that can be used to access the Windows server
+    Type: String
+    Default: ''
+
+  pIngressPrefixListId:
+    Description: ID of the prefix list representing the service that can be used to access the server
+    Type: String
+    Default: ''
+
+  pAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Core-Base'
+
+  pInstanceType:
+    Description: Windows Server EC2 instance type
+    Type: String
+    Default: t3a.small
+    AllowedValues:
+      - t3a.small
+      - t3a.medium
+    ConstraintDescription: must be a valid EC2 instance type.
+
+  pActiveDirectoryId:
+    Type: String
+    Description: AWS managed Active Directory identifier. Eg. d-12345679a
+  
+  pActiveDirectoryDomainName:
+    Type: String
+    Description: Active Directory Domain Name
+  
+  pActiveDirectoryIpAddress1:
+    Type: String
+    Description: Active Directory Domain Controller 1 IP Address
+  
+  pActiveDirectoryIpAddress2:
+    Type: String
+    Description: Active Directory Domain Controller 2 IP Address
+
+Conditions:
+  cIngressUseCidr: !Not [!Equals [ !Ref 'pIngressCidr', '' ] ]
+  cIngressUsePrefixListId: !Not [!Equals [ !Ref 'pIngressPrefixListId', '' ] ]
+
+Resources:
+  rInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${pSystem}-${pApp}-ec2-${pEnvPurpose}'
+      VpcId:
+          Fn::ImportValue: !Sub '${pVpcName}-vpc-id'
+      GroupDescription: Allow access via HTTP
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: !If [ cIngressUseCidr, !Ref pIngressCidr, !Ref 'AWS::NoValue' ]
+          SourcePrefixListId: !If [ cIngressUsePrefixListId, !Ref pIngressPrefixListId, !Ref 'AWS::NoValue' ]
+
+  rSsmDocument:
+    Type: 'AWS::SSM::Document'
+    Properties:
+      Content:
+        schemaVersion: '1.2'
+        description: Join instances to an AWS Directory Service domain.
+        parameters:
+          directoryId:
+            type: String
+            description: (Required) The ID of the AWS Directory Service directory.
+          directoryName:
+            type: String
+            description: >-
+              (Required) The name of the directory; for example,
+              test.example.com
+          dnsIpAddresses:
+            type: StringList
+            default: []
+            description: >-
+              (Optional) The IP addresses of the DNS servers in the directory.
+              Required when DHCP is not configured. Learn more at
+              http://docs.aws.amazon.com/directoryservice/latest/simple-ad/join_get_dns_addresses.html
+            allowedPattern: >-
+              ((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)
+        runtimeConfig:
+          'aws:domainJoin':
+            properties:
+              directoryId: '{{ directoryId }}'
+              directoryName: '{{ directoryName }}'
+              dnsIpAddresses: '{{ dnsIpAddresses }}'
+
+  rWindowsServer:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      IamInstanceProfile: !Ref rInstanceProfile
+      SsmAssociations:
+        - DocumentName: !Ref rSsmDocument
+          AssociationParameters:
+            - Key: directoryId
+              Value:
+                - !Ref pActiveDirectoryId
+            - Key: directoryName
+              Value:
+                - !Ref pActiveDirectoryDomainName
+            - Key: dnsIpAddresses
+              Value:
+                - !Ref pActiveDirectoryIpAddress1
+                - !Ref pActiveDirectoryIpAddress2
+      KeyName: !Ref pKeyPair
+      ImageId: !Ref pAmiId
+      InstanceType: !Ref pInstanceType
+      NetworkInterfaces:
+        - DeleteOnTermination: true
+          Description: !Sub '${pSystem}-${pApp}-${pEnvPurpose}'
+          DeviceIndex: '0'
+          SubnetId: !Ref pSubnetId
+          GroupSet:
+            - !Ref rInstanceSecurityGroup
+          AssociatePublicIpAddress: !Ref pPublicIpAddress 
+      Tags:
+        - Key: Name
+          Value: !Sub '${pSystem}-${pApp}-${pEnvPurpose}'
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - 00_setupCfnHup
+            - 01_CfnHup_service
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+          UpdateEnvironment:
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+        # Cfn-hup setting, it is to monitor the change of metadata.
+        # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
+        00_setupCfnHup:
+          files:
+             "c:\\cfn\\cfn-hup.conf":
+               content: !Sub |
+                 [main]
+                 stack=${AWS::StackId}
+                 region=${AWS::Region}
+                 interval=1
+             "c:\\cfn\\hooks.d\\amazon-cloudwatch-agent-auto-reloader.conf":
+               content: !Sub |
+                 [cfn-auto-reloader-hook]
+                 triggers=post.update
+                 path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
+                 action=cfn-init.exe -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets UpdateEnvironment
+        01_CfnHup_service:
+          services:
+            windows:
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files:
+                  - "c:\\cfn\\cfn-hup.conf"
+                  - "c:\\cfn\\hooks.d\\cfn-auto-reloader.conf"
+        # Definition of json configuration of AmazonCloudWatchAgent, you can change the configuration below.
+        02_config-amazon-cloudwatch-agent:
+          files:
+            "C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent.json":
+              content: !Sub |
+                {
+                  "metrics": {
+                    "append_dimensions": {
+                      "AutoScalingGroupName": "${!aws:AutoScalingGroupName}",
+                      "ImageId": "${!aws:ImageId}",
+                      "InstanceId": "${!aws:InstanceId}",
+                      "InstanceType": "${!aws:InstanceType}"
+                    },
+                    "metrics_collected": {
+                      "Memory": {
+                        "measurement": [
+                          "% Committed Bytes In Use"
+                        ],
+                        "metrics_collection_interval": 60
+                      },
+                      "Paging File": {
+                        "measurement": [
+                          "% Usage"
+                        ],
+                        "metrics_collection_interval": 60,
+                        "resources": [
+                          "*"
+                        ]
+                      }
+                    }
+                  }
+                }
+        # Invoke amazon-cloudwatch-agent-ctl to restart the AmazonCloudWatchAgent.
+        03_restart_amazon-cloudwatch-agent:
+          commands:
+            01_stop_service:
+              command: powershell -Command "C:\\'Program Files'\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1 -a stop"
+            02_start_service:
+              command: powershell -Command "C:\\'Program Files'\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1 -a fetch-config -m ec2 -c file:C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent.json -s"
+
+  rRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${pOrg}-${pSystem}-${pApp}-${pEnvPurpose}-svc-cloud-watch-ssm'
+      Path: !Sub '/${pOrg}/${pSystem}/${pApp}/'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+
+  rCloudWatchLogsAgentGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/${pSystem}/${pApp}/ec2/${pEnvPurpose}'
+      RetentionInDays: 1
+
+  rInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${pSystem}-${pApp}-${pEnvPurpose}'
+      Path: !Sub '/${pOrg}/${pSystem}/${pApp}/'
+      Roles:
+        - !Ref rRole
