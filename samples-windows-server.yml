@@ -220,22 +220,22 @@ Resources:
       AssociationName: !Sub '${pSystem}-${pApp}-${pEnvPurpose}'
       Name: !Ref rSsmDocument
       Parameters:
-        - Key: directoryId
-          Value:
-            - !Ref pActiveDirectoryId
-        - Key: directoryName
-          Value:
-            - !Ref pActiveDirectoryDomainName
-        - Key: dnsIpAddresses
-          Value:
-            - !Ref pActiveDirectoryIpAddress1
-            - !Ref pActiveDirectoryIpAddress2
+        directoryId: 
+        - !Ref pActiveDirectoryId
+        directoryName:
+        - !Ref pActiveDirectoryDomainName
+        dnsIpAddresses:
+        - !Ref pActiveDirectoryIpAddress1
+        - !Ref pActiveDirectoryIpAddress2
+      Targets:
+      - Key: 'tag:Name'
+        Values:
+          - !Sub '${pSystem}-${pApp}-${pEnvPurpose}'
 
   rWindowsServer:
     Type: AWS::EC2::Instance
     Properties:
       IamInstanceProfile: !Ref rInstanceProfile
-      SsmAssociations: !If [ cDomainJoined, !Ref rSsmAssociation, !Ref 'AWS::NoValue' ]
       KeyName: !Ref pKeyPair
       ImageId: !Ref pAmiId
       InstanceType: !Ref pInstanceType
