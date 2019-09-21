@@ -122,7 +122,7 @@ Parameters:
 
   pAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Core-Base'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base'
 
   pInstanceType:
     Description: Windows Server EC2 instance type
