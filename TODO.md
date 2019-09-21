@@ -1,0 +1,1 @@
+* Make domain join optional. Provide abaility to have standalone workgroup deployment.
