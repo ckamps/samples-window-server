@@ -25,7 +25,7 @@ Metadata:
     - Label:
         default: Network
       Parameters:
-      - pVpcName
+      - pVpcId
       - pSubnetId
       - pPublicIpAddress
       - pIngressCidr
@@ -55,8 +55,8 @@ Metadata:
         default: EC2 Key Pair
       pDomainJoined:
         default: Domain Joined (true | false)
-      pVpcName:
-        default: VPC Name
+      pVpcId:
+        default: VPC ID
       pSubnetId:
         default: Subnet ID
       pPublicIpAddress:
@@ -105,9 +105,9 @@ Parameters:
     Default: false
     AllowedValues: [true, false] 
 
-  pVpcName:
-    Description: Name of the existing VPC
-    Type: String
+  pVpcId:
+    Description: ID of existing VPC
+    Type: AWS::EC2::VPC::Id
 
   pSubnetId:
     Description: ID for subnet in which server is to be deployed
@@ -158,6 +158,17 @@ Parameters:
     Type: String
     Description: Active Directory Domain Controller 2 IP Address
 
+Rules:
+  SubnetInVPC:
+    Assertions:
+      - Assert:
+          'Fn::EachMemberIn':
+            - 'Fn::ValueOfAll':
+                - 'AWS::EC2::Subnet::Id'
+                - VpcId
+            - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
+        AssertDescription: Subnet must in the VPC
+
 Conditions:
   cDomainJoined: !Equals [ !Ref 'pDomainJoined', true ]
   cIngressUseCidr: !Not [!Equals [ !Ref 'pIngressCidr', '' ] ]
@@ -168,8 +179,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub '${pSystem}-${pApp}-ec2-${pEnvPurpose}'
-      VpcId:
-          Fn::ImportValue: !Sub '${pVpcName}-vpc-id'
+      VpcId: !Ref pVpcId
       GroupDescription: Allow access via HTTP
       SecurityGroupIngress:
         - IpProtocol: tcp
