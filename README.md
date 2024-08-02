@@ -17,7 +17,7 @@ Stack creation may take 5-10 minutes.  Since the template uses `cfn-signal` to i
 
 ### Accessing Windows Server via RDP and AWS Systems Manager Session Manager
 
-See [Enable RDP Through Session Manager](https://reinvent2019.aws-management.tools/mgt406/en/optional/step7.html) for details on accessing your Windows Server instances without the use of bastion hosts and without needing to associate a public IP address with your EC2 instance.
+See [Enable RDP Through Session Manager](https://awscloudsecvirtualevent.com/workshops/module1/rdp/) for details on accessing your Windows Server instances without the use of bastion hosts and without needing to associate a public IP address with your EC2 instance.
 
 If you're joining the instance to a domain, then you can skip the step of creating a local user. Instead, you can either use the domain admin or a user available in the domain who is part of the appropriate group.
 
